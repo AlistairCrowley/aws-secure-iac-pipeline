@@ -13,10 +13,33 @@ resource "aws_s3_bucket_public_access_block" "data" {
 }
 
 
+data "aws_caller_identity" "current" {}
+
+data "aws_iam_policy_document" "data_key" {
+  #checkov:skip=CKV_AWS_109:Key policy - kms:* is scoped to this key only and delegated to IAM (AWS default key policy)
+  #checkov:skip=CKV_AWS_111:Key policy - write actions apply only to the key this policy is attached to
+  #checkov:skip=CKV_AWS_356:Key policy - resource * refers to this key itself, not all resources
+
+  statement {
+    sid       = "EnableIAMPermissions"
+    effect    = "Allow"
+    actions   = ["kms:*"]
+    resources = ["*"]
+
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+}
+
+
 resource "aws_kms_key" "data" {
   description             = "Encrypts objects in the project data bucket"
   enable_key_rotation     = true
   deletion_window_in_days = 7
+  policy                  = data.aws_iam_policy_document.data_key.json
 
 }
 
