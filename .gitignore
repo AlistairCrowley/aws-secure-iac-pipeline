@@ -1,0 +1,15 @@
+# Terraform's downloaded plugins (large, can be re-downloaded)
+.terraform/
+
+# State files: Terraform's record of what it built. Can contain secrets. 
+*.tfstate
+*.tfstate.*
+
+# Saved plans can contain sensitive values
+*.tfplan
+
+# Variable files can contain passwords or keys
+*.tfvars
+
+# Terraform crash logs
+crash.log
