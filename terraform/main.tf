@@ -33,3 +33,47 @@ resource "aws_s3_bucket_versioning" "data" {
 }
 
 
+
+data "aws_iam_policy_document" "reader_trust" {
+  statement {
+    sid      = "AllowEC2ToAssumeRole"
+    effect   = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
+
+resource "aws_iam_role" "reader" {
+    name_prefix = "${var.project_name}-reader-"
+    description = "Read-only access to the project data bucket"
+    assume_role_policy = data.aws_iam_policy_document.reader_trust.json
+}
+
+
+data "aws_iam_policy_document" "reader_permissions" {
+    statement {
+        sid = "ListBucket"
+        effect = "Allow"
+        actions = ["s3:ListBucket"]
+        resources = [aws_s3_bucket.data.arn]
+    }
+
+    statement {
+        sid = "ReadObjects"
+        effect = "Allow"
+        actions = ["s3:GetObject"]
+        resources = ["${aws_s3_bucket.data.arn}/*"]
+    }
+}
+
+
+resource "aws_iam_role_policy" "reader" {
+   name = "read-data-bucket"
+   role  = aws_iam_role.reader.id
+   policy = data.aws_iam_policy_document.reader_permissions.json
+}
