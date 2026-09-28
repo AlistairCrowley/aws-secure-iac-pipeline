@@ -33,6 +33,28 @@ resource "aws_s3_bucket_versioning" "data" {
 }
 
 
+resource "aws_s3_bucket_lifecycle_configuration" "data" {
+  bucket = aws_s3_bucket.data.id
+
+  depends_on = [aws_s3_bucket_versioning.data]
+
+  rule {
+    id     = "expire-old-versions"
+    status = "Enabled"
+
+    filter {}
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
+
+
 
 data "aws_iam_policy_document" "reader_trust" {
   statement {
