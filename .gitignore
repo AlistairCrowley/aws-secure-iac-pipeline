@@ -1,6 +1,10 @@
 # Terraform's downloaded plugins (large, can be re-downloaded)
 .terraform/
 
+# Personal VS Code editor settings
+.vscode/
+
+
 # State files: Terraform's record of what it built. Can contain secrets. 
 *.tfstate
 *.tfstate.*
