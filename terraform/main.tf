@@ -13,13 +13,28 @@ resource "aws_s3_bucket_public_access_block" "data" {
 }
 
 
+resource "aws_kms_key" "data" {
+  description             = "Encrypts objects in the project data bucket"
+  enable_key_rotation     = true
+  deletion_window_in_days = 7
+
+}
+
+resource "aws_kms_alias" "data" {
+  name          = "alias/${var.project_name}-data"
+  target_key_id = aws_kms_key.data.key_id
+}
+
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "data" {
   bucket = aws_s3_bucket.data.id
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.data.arn
     }
+    bucket_key_enabled = true
   }
 }
 
@@ -91,6 +106,14 @@ data "aws_iam_policy_document" "reader_permissions" {
     actions   = ["s3:GetObject"]
     resources = ["${aws_s3_bucket.data.arn}/*"]
   }
+
+  statement {
+    sid       = "DecryptWithDataKey"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = [aws_kms_key.data.arn]
+  }
+
 }
 
 
