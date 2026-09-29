@@ -1,10 +1,12 @@
 # aws-secure-iac-pipeline
 
+[![Security](https://github.com/AlistairCrowley/aws-secure-iac-pipeline/actions/workflows/security.yml/badge.svg)](https://github.com/AlistairCrowley/aws-secure-iac-pipeline/actions/workflows/security.yml)
+
 Terraform-built AWS infrastructure with a GitHub Actions pipeline that blocks insecure changes before they deploy.
 
 This project builds a small, deliberately hardened AWS environment entirely as code, then puts security scanning in front of it so that insecure changes are caught before they ever reach AWS. The goal is to show the full loop: write infrastructure, scan it, make and document risk decisions, and eventually enforce those checks automatically in CI/CD.
 
-**Status:** In progress. Phases 0–2 complete; Phase 3 (GitHub Actions pipeline) is next. Nothing is deployed to AWS yet; all work so far runs locally at no cost.
+**Status:** In progress. Phases 0–2 complete. Phase 3: the security pipeline is live and scans every pull request and every push to `main`; blocking merges on failure (branch ruleset) is next. Nothing is deployed to AWS yet, and everything so far runs at no cost.
 
 ---
 
@@ -45,18 +47,33 @@ flowchart LR
 
 ---
 
-## Security scanning
+## Security pipeline
 
-The Terraform is scanned locally with two independent tools:
+Every pull request and every push to `main` runs four scanners in parallel through GitHub Actions ([`.github/workflows/security.yml`](.github/workflows/security.yml)). Any finding fails the run.
 
-| Tool | What it checks |
-|---|---|
-| [Checkov](https://www.checkov.io/) | Terraform misconfigurations against AWS security best practices |
-| [Trivy](https://trivy.dev/) | Terraform misconfigurations (with severity ratings) |
+| Job | Tool | What it catches |
+|---|---|---|
+| Secrets | [Gitleaks](https://github.com/gitleaks/gitleaks) | Keys, tokens, and passwords anywhere in the full git history, including secrets committed and later deleted |
+| SAST | [Semgrep](https://semgrep.dev/) (`p/terraform`, `p/github-actions`) | Insecure patterns in the Terraform and in the pipeline itself, such as unpinned actions or shell injection |
+| SCA + IaC | [Trivy](https://trivy.dev/) | Terraform misconfigurations, with severity ratings; dependency vulnerabilities (see note) |
+| IaC | [Checkov](https://www.checkov.io/) | Terraform misconfigurations against AWS security best practices |
 
-Running two scanners is deliberate: they overlap, but each catches things the other misses. Where both flag the same issue, that finding carries more weight.
+Running two IaC scanners is deliberate: they overlap, but each catches things the other misses. Where both flag the same issue, that finding carries more weight.
 
-### Controls verified by the scanners
+**Note on dependency scanning:** the repo has no package manifests yet, so Trivy's vulnerability scanner currently has nothing to cover. Its report shows "not scanned," not "clean." It activates automatically when a manifest is added.
+
+### Hardening the pipeline itself
+
+A security pipeline is itself an attack path, so it gets the same treatment as the infrastructure:
+
+- **Everything pinned.** Every action is pinned to a full commit SHA and every container image to a digest. Version tags can be silently repointed; SHAs and digests can't. This is the failure mode behind the March 2026 Trivy supply-chain compromise ([CVE-2026-33634](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)), in which 76 of 77 `trivy-action` version tags were force-pushed to malicious code; the advisory itself notes that images referenced by digest were unaffected.
+- **No wrapper action for Trivy.** Trivy runs from its official container image, which keeps one more third-party action out of the chain.
+- **Read-only token.** The workflow's `GITHUB_TOKEN` is limited to `contents: read`. Only the Gitleaks job adds `pull-requests: read`, to list a PR's commits. PR comments are turned off rather than granting write access.
+- **Failures actually fail.** Semgrep and Trivy report findings but exit successfully by default, which would produce a green check with problems in it. They run with `--error` and `--exit-code 1` so the exit code carries the verdict. Checkov fails on findings by default.
+- **No phoning home.** Semgrep runs with metrics off, and Checkov with `--skip-download`.
+- **The pipeline checked itself before its first run.** Semgrep's GitHub Actions rules, run against the draft workflow, flagged four mutable action tags. Pinning cleared all four before the first commit.
+
+### Infrastructure controls verified by the scanners
 
 - S3 public access blocked (ACLs and policies)
 - Encryption with a customer-managed KMS key
@@ -100,14 +117,15 @@ Suppressions are applied narrowly, inline on the specific resource, with the rea
 │   └── outputs.tf      # Bucket name/ARN, role ARN
 ├── docs/
 │   └── security-decisions.md   # Risk decisions and scanner suppressions
-└── .github/workflows/  # CI/CD pipeline (Phase 3)
+└── .github/workflows/
+    └── security.yml    # Security pipeline: four scanners in parallel, all pinned
 ```
 
 ---
 
 ## Running it locally
 
-Requires Terraform 1.10+, Python (for Checkov), and Trivy. No AWS account is needed for these steps.
+Requires Terraform 1.10+, Python (for Checkov), and Trivy. No AWS account is needed for these steps. The same checks, plus Gitleaks and Semgrep, run automatically in CI; the workflow file has the exact flags.
 
 ```bash
 cd terraform
@@ -126,7 +144,10 @@ trivy config terraform
 - [x] **Phase 0:** Tooling
 - [x] **Phase 1:** Terraform written and validated locally
 - [x] **Phase 2:** Local security scanning, triage, and documented risk decisions
-- [ ] **Phase 3:** GitHub Actions pipeline: secrets (Gitleaks), SAST (Semgrep), dependency scanning (Trivy), IaC scanning (Checkov); merges blocked on failure
+- [ ] **Phase 3:** GitHub Actions pipeline (in progress)
+  - [x] Secrets (Gitleaks), SAST (Semgrep), SCA + IaC (Trivy), and IaC (Checkov) on every PR and push to `main`, all pinned
+  - [ ] Scan results uploaded to the GitHub Security tab (SARIF)
+  - [ ] Branch ruleset: merges blocked unless every check passes
 - [ ] **Phase 4:** Prove it works: a deliberately insecure pull request, blocked by the pipeline
 - [ ] **Phase 5:** Deploy to AWS using GitHub OIDC (no stored access keys), with manual approval before apply
 - [ ] **Phase 6:** Continuous compliance: nightly scans, drift detection, CIS AWS Foundations mapping
