@@ -17,3 +17,7 @@
 
 # Terraform crash logs
 crash.log
+crash.*.log
+
+# JSON-format variable files can hold secrets too
+*.tfvars.json
