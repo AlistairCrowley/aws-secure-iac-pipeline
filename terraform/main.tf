@@ -1,4 +1,6 @@
 resource "aws_s3_bucket" "data" {
+  #checkov:skip=CKV_AWS_144:Cross-region replication accepted - demo data with no regional DR requirement and versioning covers recovery - see docs/security-decisions.md
+  #checkov:skip=CKV2_AWS_62:Event notifications accepted - no downstream consumer and access logging provides the audit trail - see docs/security-decisions.md
   bucket_prefix = "${var.project_name}-data-"
 }
 
@@ -149,10 +151,11 @@ resource "aws_iam_role_policy" "reader" {
 
 
 resource "aws_s3_bucket" "logs" {
- #checkov:skip=CKV_AWS_145:Log destination bucket - S3 server access logging does not support customer-managed KMS keys so SSE-S3 (AES256) is used   
+  #checkov:skip=CKV_AWS_145:Log destination bucket - S3 server access logging does not support customer-managed KMS keys so SSE-S3 (AES256) is used
+  #checkov:skip=CKV_AWS_144:Cross-region replication accepted - demo log data with no regional DR requirement - see docs/security-decisions.md
+  #checkov:skip=CKV2_AWS_62:Event notifications accepted - no downstream consumer for log delivery events - see docs/security-decisions.md
   bucket_prefix = "${var.project_name}-logs-"
 }
-
 
 resource "aws_s3_bucket_public_access_block" "logs" {
   bucket = aws_s3_bucket.logs.id
