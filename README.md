@@ -92,7 +92,7 @@ Suppressions are applied narrowly, inline on the specific resource, with the rea
 │   ├── main.tf         # S3 bucket, KMS key, IAM role
 │   └── outputs.tf      # Bucket name/ARN, role ARN
 ├── docs/
-│   └── BUILD_PLAN.md   # Step-by-step plan, decisions log, lessons learned
+│   └── security-decisions.md   # Risk decisions and scanner suppressions (Step 2.6)
 └── .github/workflows/  # CI/CD pipeline (Phase 3)
 ```
 
