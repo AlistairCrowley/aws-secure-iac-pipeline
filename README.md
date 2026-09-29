@@ -92,7 +92,7 @@ Suppressions are applied narrowly, inline on the specific resource, with the rea
 │   ├── main.tf         # S3 bucket, KMS key, IAM role
 │   └── outputs.tf      # Bucket name/ARN, role ARN
 ├── docs/
-│   └── security-decisions.md   # Risk decisions and scanner suppressions (Step 2.6)
+│   └── BUILD_PLAN.md   # Step-by-step plan, decisions log, lessons learned
 └── .github/workflows/  # CI/CD pipeline (Phase 3)
 ```
 
@@ -126,3 +126,7 @@ trivy config terraform
 - [ ] **Phase 7:** Final documentation
 
 ---
+
+## Build log
+
+See [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) for the full step-by-step plan, every decision with its reasoning, and lessons learned along the way.
