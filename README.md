@@ -4,7 +4,7 @@ Terraform-built AWS infrastructure with a GitHub Actions pipeline that blocks in
 
 This project builds a small, deliberately hardened AWS environment entirely as code, then puts security scanning in front of it so that insecure changes are caught before they ever reach AWS. The goal is to show the full loop: write infrastructure, scan it, make and document risk decisions, and eventually enforce those checks automatically in CI/CD.
 
-**Status:** In progress. Phase 2 of 7 (local security scanning). Nothing is deployed to AWS yet; all work so far runs locally at no cost.
+**Status:** In progress. Phases 0–2 complete; Phase 3 (GitHub Actions pipeline) is next. Nothing is deployed to AWS yet; all work so far runs locally at no cost.
 
 ---
 
@@ -16,6 +16,7 @@ flowchart LR
     Role -->|read-only| Data[("S3 data bucket<br/>versioned · public access blocked<br/>old versions expire after 90 days")]
     Role -->|decrypt only| Key["KMS customer-managed key<br/>annual rotation · explicit key policy"]
     Key -->|encrypts at rest| Data
+    Data -->|server access logs| Logs[("S3 logs bucket<br/>SSE-S3 · versioned · public access blocked<br/>logs retained 365 days")]
 ```
 
 ---
@@ -37,8 +38,10 @@ flowchart LR
 - Trust policy: only the EC2 service can assume the role
 - Permissions: list and read objects in the one data bucket, and decrypt with the one data key. No write, no delete, no access to anything else.
 
-**Access logging** *(in progress)*
-- Dedicated logs bucket receiving S3 server access logs from the data bucket, with a bucket policy scoped to the S3 logging service, the data bucket, and this account only
+**Access logging**
+- Dedicated logs bucket receiving S3 server access logs from the data bucket
+- Logs bucket has its own public access block, encryption (SSE-S3, since log delivery doesn't support customer-managed keys), versioning, and a 365-day retention rule
+- Bucket policy allows only the S3 logging service to write, only for the data bucket, only in this account
 
 ---
 
@@ -61,20 +64,24 @@ Running two scanners is deliberate: they overlap, but each catches things the ot
 - KMS key policy explicitly defined
 - Versioning enabled
 - Lifecycle configuration present
+- Access logging enabled
 - IAM policies grant no unrestricted S3 access
+
+Current result: every Checkov and Trivy finding is either fixed or suppressed inline with a documented reason. Nothing is left unaddressed.
 
 ---
 
 ## Security decisions
 
-Not every scanner finding should be fixed. Each one was weighed on risk, cost, and effort, and the decision recorded.
+Not every scanner finding should be fixed. Each one was weighed on risk, cost, and effort, and the decision recorded. Full reasoning, compensating controls, and "revisit if" conditions are in [docs/security-decisions.md](docs/security-decisions.md).
 
 | Finding | Decision | Reason |
 |---|---|---|
 | No lifecycle configuration | **Fixed** | Versioning keeps old copies forever; cleanup controls cost |
 | No customer-managed KMS key (flagged HIGH) | **Fixed** | Flagged by both tools; gives control over key use and an audit trail |
-| No access logging | **Fixing** | Audit trail needed for any investigation |
+| No access logging | **Fixed** | Audit trail needed for any investigation |
 | Key policy flagged for `kms:*` and resource `*` | **Suppressed as false positive** | In a key policy, `*` means "this key only," and the account principal delegates to IAM. This is AWS's recommended pattern. Suppressed inline with a written reason. |
+| Logs bucket not using a customer-managed KMS key | **Suppressed: not supported** | S3 server access logging can't deliver to a bucket encrypted with a customer-managed key; SSE-S3 is used instead |
 | No cross-region replication | **Accepted** | A disaster-recovery control for business-critical data; this is demo data, and versioning already covers recovery |
 | No event notifications | **Accepted** | No downstream system to notify; access logging covers the audit need |
 
@@ -89,10 +96,10 @@ Suppressions are applied narrowly, inline on the specific resource, with the rea
 ├── terraform/
 │   ├── providers.tf    # Terraform and AWS provider versions, default tags
 │   ├── variables.tf    # Region and project name
-│   ├── main.tf         # S3 bucket, KMS key, IAM role
+│   ├── main.tf         # S3 buckets, KMS key, IAM role, access logging
 │   └── outputs.tf      # Bucket name/ARN, role ARN
 ├── docs/
-│   └── BUILD_PLAN.md   # Step-by-step plan, decisions log, lessons learned
+│   └── security-decisions.md   # Risk decisions and scanner suppressions
 └── .github/workflows/  # CI/CD pipeline (Phase 3)
 ```
 
@@ -118,7 +125,7 @@ trivy config terraform
 
 - [x] **Phase 0:** Tooling
 - [x] **Phase 1:** Terraform written and validated locally
-- [ ] **Phase 2:** Local security scanning and triage *(in progress)*
+- [x] **Phase 2:** Local security scanning, triage, and documented risk decisions
 - [ ] **Phase 3:** GitHub Actions pipeline: secrets (Gitleaks), SAST (Semgrep), dependency scanning (Trivy), IaC scanning (Checkov); merges blocked on failure
 - [ ] **Phase 4:** Prove it works: a deliberately insecure pull request, blocked by the pipeline
 - [ ] **Phase 5:** Deploy to AWS using GitHub OIDC (no stored access keys), with manual approval before apply
@@ -126,7 +133,3 @@ trivy config terraform
 - [ ] **Phase 7:** Final documentation
 
 ---
-
-## Build log
-
-See [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) for the full step-by-step plan, every decision with its reasoning, and lessons learned along the way.
