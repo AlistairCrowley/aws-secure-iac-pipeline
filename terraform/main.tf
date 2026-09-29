@@ -149,6 +149,7 @@ resource "aws_iam_role_policy" "reader" {
 
 
 resource "aws_s3_bucket" "logs" {
+ #checkov:skip=CKV_AWS_145:Log destination bucket - S3 server access logging does not support customer-managed KMS keys so SSE-S3 (AES256) is used   
   bucket_prefix = "${var.project_name}-logs-"
 }
 
