@@ -6,7 +6,7 @@ Terraform-built AWS infrastructure with a GitHub Actions pipeline that blocks in
 
 This project builds a small, deliberately hardened AWS environment entirely as code, then puts security scanning in front of it so that insecure changes are caught before they ever reach AWS. The goal is to show the full loop: write infrastructure, scan it, make and document risk decisions, and eventually enforce those checks automatically in CI/CD.
 
-**Status:** In progress. Phases 0–2 complete. Phase 3: the security pipeline is live and scans every pull request and every push to `main`; blocking merges on failure (branch ruleset) is next. Nothing is deployed to AWS yet, and everything so far runs at no cost.
+**Status:** In progress. Phases 0–3 complete. The security pipeline scans every pull request and every push to `main`, and a branch ruleset blocks any merge into `main` unless all four checks pass. Next: Phase 4, a deliberately insecure pull request to prove the gate holds. Nothing is deployed to AWS yet, and everything so far runs at no cost.
 
 ---
 
@@ -50,6 +50,8 @@ flowchart LR
 ## Security pipeline
 
 Every pull request and every push to `main` runs four scanners in parallel through GitHub Actions ([`.github/workflows/security.yml`](.github/workflows/security.yml)). Any finding fails the run.
+
+A branch ruleset on `main` turns a failed run into a blocked merge: changes reach `main` only through a pull request, all four checks must pass, force-pushes and branch deletion are blocked, and there is no bypass, including for the repository owner.
 
 | Job | Tool | What it catches |
 |---|---|---|
@@ -144,10 +146,10 @@ trivy config terraform
 - [x] **Phase 0:** Tooling
 - [x] **Phase 1:** Terraform written and validated locally
 - [x] **Phase 2:** Local security scanning, triage, and documented risk decisions
-- [ ] **Phase 3:** GitHub Actions pipeline (in progress)
+- [x] **Phase 3:** GitHub Actions pipeline
   - [x] Secrets (Gitleaks), SAST (Semgrep), SCA + IaC (Trivy), and IaC (Checkov) on every PR and push to `main`, all pinned
-  - [ ] Scan results uploaded to the GitHub Security tab (SARIF)
-  - [ ] Branch ruleset: merges blocked unless every check passes
+  - [x] Branch ruleset: merges to `main` blocked unless every check passes
+  - [ ] Optional: scan results uploaded to the GitHub Security tab (SARIF)
 - [ ] **Phase 4:** Prove it works: a deliberately insecure pull request, blocked by the pipeline
 - [ ] **Phase 5:** Deploy to AWS using GitHub OIDC (no stored access keys), with manual approval before apply
 - [ ] **Phase 6:** Continuous compliance: nightly scans, drift detection, CIS AWS Foundations mapping
