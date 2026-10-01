@@ -68,3 +68,38 @@ jobs:
 
       - name: Scan Terraform
         run: checkov -d terraform --framework terraform --quiet --compact --skip-download
+
+  suppression-guard:
+    name: Suppression guard
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0 
+          persist-credentials: false
+        
+      - name: New suppressions need a documented decision 
+        env: 
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          added=$(git diff "$BASE_SHA...$HEAD_SHA" | grep '^+' | grep -v '^+++' | grep -E 'checkov:[s]kip|trivy:[i]gnore|no[s]emgrep|gitleaks:[a]llow' || true)
+
+          if [ -z "$added" ]; then
+            echo "No new suppressions in this PR."
+            exit 0
+          fi
+
+          echo "New suppressions in this PR:"
+          echo "$added"
+
+          changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+          if grep -qxF 'docs/security-decisions.md' <<< "$changed"; then
+            echo "docs/security-decisions.md is updated in this PR, so these are allowed."
+            exit 0
+          fi
+
+          echo "::error::This PR adds suppressions without updating docs/security-decisions.md"
+          exit 1
