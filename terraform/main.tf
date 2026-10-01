@@ -217,7 +217,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
 
 data "aws_iam_policy_document" "logs_bucket" {
   statement {
-    sid       = "AllowS3ServerAcessLogs"
+    sid       = "AllowS3ServerAccessLogs"
     effect    = "Allow"
     actions   = ["s3:PutObject"]
     resources = ["${aws_s3_bucket.logs.arn}/access-logs/*"]
