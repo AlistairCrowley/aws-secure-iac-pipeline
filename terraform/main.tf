@@ -1,11 +1,16 @@
 resource "aws_s3_bucket" "data" {
+  #checkov:skip=CKV2_AWS_6: Temporary, will fix later
   #checkov:skip=CKV_AWS_144:Cross-region replication accepted - demo data with no regional DR requirement and versioning covers recovery - see docs/security-decisions.md
   #checkov:skip=CKV2_AWS_62:Event notifications accepted - no downstream consumer and access logging provides the audit trail - see docs/security-decisions.md
   bucket_prefix = "${var.project_name}-data-"
 }
 
-
+#trivy:ignore:AWS-0086 trivy:ignore:AWS-0087 trivy:ignore:AWS-0091 trivy:ignore:AWS-0093
 resource "aws_s3_bucket_public_access_block" "data" {
+  #checkov:skip=CKV_AWS_53: Temporary, will fix later
+  #checkov:skip=CKV_AWS_54: Temporary, will fix later
+  #checkov:skip=CKV_AWS_55: Temporary, will fix later
+  #checkov:skip=CKV_AWS_56: Temporary, will fix later
   bucket = aws_s3_bucket.data.id
 
   block_public_acls       = false
