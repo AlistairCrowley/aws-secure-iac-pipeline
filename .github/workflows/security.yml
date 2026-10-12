@@ -77,6 +77,25 @@ jobs:
       - name: Scan Terraform
         run: checkov -d terraform --framework terraform --quiet --compact --skip-download
 
+
+  validate:
+    name: Validate (Terraform)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container:
+      image: hashicorp/terraform:1.16.5@sha256:c7926feace05d0f7e73542842bf3945924e955a1f782cf000ccbb8d18fa42d77
+    steps:
+      - name: Check out code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Check formatting
+        run: terraform -chdir=terraform fmt -check -recursive
+      - name: Initialize
+        run: terraform -chdir=terraform init -backend=false -input=false
+      - name: Validate
+        run: terraform -chdir=terraform validate
+
   suppression-guard:
     name: Suppression guard
     if: github.event_name == 'pull_request'
