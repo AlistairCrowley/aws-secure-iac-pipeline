@@ -1,6 +1,6 @@
 # Security Decisions
 
-Every security scanner finding in this project gets one of four outcomes: **fixed**, **accepted** as a documented risk, **suppressed** because the finding doesn't apply to how the resource is used, or **suppressed as a false positive**. This file records each decision and the reasoning behind it, so the choices can be reviewed, challenged, and revisited.
+Every security scanner finding in this project gets one of four outcomes: **fixed**, **accepted** as a documented risk, **suppressed** because the finding doesn't apply to how the resource is used, or **suppressed as a false positive**. This file records each decision and the reasoning behind it, so the choices can be reviewed, challenged, and revisited. It also records gaps in the tooling itself and how they’re covered.
 
 Suppressions in the Terraform code are applied inline on the specific resource, with a short reason next to them. The same check still runs everywhere else in the code.
 
@@ -19,6 +19,7 @@ Suppressions in the Terraform code are applied inline on the specific resource, 
 | 5 | Not encrypted with a customer-managed KMS key | Logs bucket | Suppressed: not supported |
 | 6 | No cross-region replication | Data and logs buckets | Accepted |
 | 7 | No event notifications | Data and logs buckets | Accepted |
+| 8 | Container images not updated by Dependabot | Security workflow (5 images) | Accepted: manual process |
 
 ---
 
@@ -116,3 +117,22 @@ This is AWS's recommended default key policy. Actual access is limited by IAM, w
 **Controls already in place:** Server access logging (decision 3) already records every request to the data bucket for review and investigation.
 
 **Revisit if:** a consumer is added, such as a SIEM ingesting S3 events for real-time alerting, or an automated workflow triggered by new uploads.
+
+---
+
+## 8. Container image updates: Accepted (manual process)
+
+**Gap:** Dependabot keeps the GitHub Actions and the Terraform AWS provider up to date, but it does not support container images referenced inside workflow files. The five scanner images in the security workflow (Semgrep, Trivy, Checkov, Terraform, and zizmor) are pinned by digest and will not receive automated update pull requests.
+
+**What automation would add:** A bot such as Renovate could open pull requests with new image digests as releases come out.
+
+**Why it's accepted:** Renovate would be a second bot with write access to the repository, adding attack surface to cover five lines that change infrequently. It also cannot see the zizmor image, which runs inside a `docker run` command, without custom rules, so a manual step would remain either way. For a small, single-maintainer repository, a short scheduled review is the simpler and safer control.
+
+**Controls already in place:**
+- Every image is pinned by an immutable digest, so nothing changes without a reviewed pull request.
+- Images are checked for new releases once a month and updated by pull request.
+- No release is adopted until it is at least 7 days old, matching the Dependabot cooldown.
+- Every update, manual or automated, must pass all seven required checks before it can merge.
+- Dependabot pull requests for the Terraform provider are reviewed by the version in `.terraform.lock.hcl`, not the pull request title, and merged only if that release is at least 7 days old. Dependabot regenerates the lock file without applying the cooldown: on 2026-10-12, PR #10 was titled 6.67.0 but resolved 6.68.0, which was 5 days old, and was closed for that reason.
+
+**Revisit if:** more images are added, collaborators join the project, or the planned nightly workflow gains a job that detects new image releases automatically.
