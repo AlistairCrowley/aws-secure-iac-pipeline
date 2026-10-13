@@ -20,6 +20,7 @@ Suppressions in the Terraform code are applied inline on the specific resource, 
 | 6 | No cross-region replication | Data and logs buckets | Accepted |
 | 7 | No event notifications | Data and logs buckets | Accepted |
 | 8 | Container images not updated by Dependabot | Security workflow (5 images) | Accepted: manual process |
+
 ---
 
 ## 1. Lifecycle configuration: Fixed
@@ -117,7 +118,7 @@ This is AWS's recommended default key policy. Actual access is limited by IAM, w
 
 **Revisit if:** a consumer is added, such as a SIEM ingesting S3 events for real-time alerting, or an automated workflow triggered by new uploads.
 
-
+---
 
 ## 8. Container image updates: Accepted (manual process)
 
