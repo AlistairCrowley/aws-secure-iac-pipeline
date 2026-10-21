@@ -1,17 +1,17 @@
 # aws-secure-iac-pipeline
-
+ 
 [![Security](https://github.com/AlistairCrowley/aws-secure-iac-pipeline/actions/workflows/security.yml/badge.svg)](https://github.com/AlistairCrowley/aws-secure-iac-pipeline/actions/workflows/security.yml)
-
+ 
 Terraform-built AWS infrastructure with a GitHub Actions pipeline that blocks insecure changes before they deploy.
-
+ 
 This project builds a small, deliberately hardened AWS environment entirely as code, then puts security scanning in front of it so that insecure changes are caught before they ever reach AWS. The goal is to show the full loop: write infrastructure, scan it, make and document risk decisions, and eventually enforce those checks automatically in CI/CD.
-
+ 
 **Status:** In progress. Phases 0–3 complete; Phase 4 underway. The security pipeline scans every pull request and every push to `main`, and a branch ruleset blocks any merge into `main` unless every required check passes. The pipeline has been hardened against pull requests that suppress their own findings; next is a deliberately insecure pull request to prove the gate holds. Nothing is deployed to AWS yet, and everything so far runs at no cost.
-
+ 
 ---
-
+ 
 ## Architecture (current)
-
+ 
 ```mermaid
 flowchart LR
     EC2["EC2 service<br/>trusted principal"] -->|sts:AssumeRole| Role["IAM role: reader<br/>ListBucket · GetObject · kms:Decrypt"]
@@ -20,11 +20,11 @@ flowchart LR
     Key -->|encrypts at rest| Data
     Data -->|server access logs| Logs[("S3 logs bucket<br/>SSE-S3 · versioned · public access blocked<br/>logs retained 365 days")]
 ```
-
+ 
 ---
-
+ 
 ## What's built so far
-
+ 
 **S3 data bucket**
 - All four public access block settings enabled, so the bucket can't be made public by ACL or bucket policy
 - Encrypted at rest with a customer-managed KMS key, with an S3 bucket key to reduce KMS request costs
@@ -42,31 +42,35 @@ flowchart LR
 - Logs bucket has its own public access block, encryption (SSE-S3, since log delivery doesn't support customer-managed keys), versioning, and a 365-day retention rule
 - Bucket policy allows only the S3 logging service to write, only for the data bucket, only in this account
 ---
-
+ 
 ## Security pipeline
-
-Every pull request and every push to `main` runs four scanners in parallel through GitHub Actions ([`.github/workflows/security.yml`](.github/workflows/security.yml)). Any finding fails the run.
-
-A branch ruleset on `main` turns a failed run into a blocked merge: changes reach `main` only through a pull request, all five checks must pass, force-pushes and branch deletion are blocked, and there is no bypass, including for the repository owner.
-
-The fifth check, the **suppression guard**, closes the obvious loophole. Every scanner can be silenced by an inline skip comment, so a pull request could quietly suppress its own findings and pass. The guard fails any pull request that adds a new suppression unless the same pull request also updates [docs/security-decisions.md](docs/security-decisions.md). A suppression ships with a written decision, or it doesn't ship.
-
+ 
+Every pull request and every push to `main` runs six jobs in parallel through GitHub Actions ([`.github/workflows/security.yml`](.github/workflows/security.yml)): four security scanners, a Terraform validation job, and a linter that audits the workflow itself. Pull requests also run a seventh check, the suppression guard. Any finding fails the run.
+ 
+A branch ruleset on `main` turns a failed run into a blocked merge: changes reach `main` only through a pull request, every check must pass, force-pushes and branch deletion are blocked, and there is no bypass, including for the repository owner.
+ 
+The **suppression guard** closes the obvious loophole. Every scanner can be silenced by an inline skip comment, so a pull request could quietly suppress its own findings and pass. The guard fails any pull request that adds a new suppression unless the same pull request also updates [docs/security-decisions.md](docs/security-decisions.md). A suppression ships with a written decision, or it doesn't ship.
+ 
 | Job | Tool | What it catches |
 |---|---|---|
 | Secrets | [Gitleaks](https://github.com/gitleaks/gitleaks) | Keys, tokens, and passwords anywhere in the full git history, including secrets committed and later deleted |
 | SAST | [Semgrep](https://semgrep.dev/) (`p/terraform`, `p/github-actions`) | Insecure patterns in the Terraform and in the pipeline itself, such as unpinned actions or shell injection |
 | SCA + IaC | [Trivy](https://trivy.dev/) | Terraform misconfigurations, with severity ratings; dependency vulnerabilities (see note) |
 | IaC | [Checkov](https://www.checkov.io/) | Terraform misconfigurations against AWS security best practices |
-
+| Validate | [Terraform](https://developer.hashicorp.com/terraform) `fmt` + `validate` | Unformatted code, syntax errors, and invalid references, before anything is scanned or deployed |
+| Workflow lint | [zizmor](https://github.com/zizmorcore/zizmor) | Security flaws in the GitHub Actions workflow itself, such as template injection, over-broad permissions, and unpinned dependencies |
+| Suppression guard | Custom shell check (PRs only) | New inline skip comments that arrive without a matching entry in `docs/security-decisions.md` |
+ 
 Running two IaC scanners is deliberate: they overlap, but each catches things the other misses. Where both flag the same issue, that finding carries more weight.
-
+ 
 **Note on dependency scanning:** the repo has no package manifests yet, so Trivy's vulnerability scanner currently has nothing to cover. Its report shows "not scanned," not "clean." It activates automatically when a manifest is added.
-
+ 
 ### Hardening the pipeline itself
-
+ 
 A security pipeline is itself an attack path, so it gets the same treatment as the infrastructure:
-
+ 
 - **Code pinned, detection kept fresh.** Every action is pinned to a full commit SHA, every container image to a digest, and every runner to a fixed Ubuntu release (`ubuntu-24.04`). Version tags can be silently repointed; SHAs and digests can't. This is the failure mode behind the March 2026 Trivy supply-chain compromise ([CVE-2026-33634](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)), in which 76 of 77 `trivy-action` version tags were force-pushed to malicious code; the advisory itself notes that images referenced by digest were unaffected. Detection rules are deliberately not frozen: Semgrep pulls its registry rules, and Trivy its vulnerability database and checks bundle, on every run, so new detections apply immediately. Checkov's rules ship inside its pinned image.
+- **Pins don't go stale.** Dependabot checks the pinned actions and the Terraform providers weekly and opens a pull request for each update, which runs through the full pipeline like any other change. A 7-day cooldown means a new release has to age a week before it's proposed, so a freshly published malicious version has time to be caught and pulled first.
 - **No credentials left on disk.** Every checkout sets `persist-credentials: false`, so the workflow token is never written into the job's git configuration where later steps could read it.
 - **No wrapper action for Trivy.** Trivy runs from its official container image, which keeps one more third-party action out of the chain.
 - **Read-only token.** The workflow's `GITHUB_TOKEN` is limited to `contents: read`. Only the Gitleaks job adds `pull-requests: read`, to list a PR's commits. PR comments are turned off rather than granting write access.
@@ -74,9 +78,9 @@ A security pipeline is itself an attack path, so it gets the same treatment as t
 - **No phoning home.** Semgrep runs with metrics off, and Checkov with `--skip-download`.
 - **Bounded runs.** Every job has a 10-minute timeout instead of GitHub's 6-hour default, and a new push to a pull request cancels that pull request's older run. Runs on `main` are never cancelled, so every merge gets a full scan.
 - **No script injection.** Values from the pull request event reach shell steps only through environment variables, never pasted directly into the script.
-- **The pipeline checked itself before its first run.** Semgrep's GitHub Actions rules, run against the draft workflow, flagged four mutable action tags. Pinning cleared all four before the first commit.
+- **The pipeline checks itself on every run.** Before the first commit, Semgrep's GitHub Actions rules flagged four mutable action tags in the draft workflow, and pinning cleared all four. That check is now permanent: zizmor audits the workflow on every pull request and push, so a change that weakens the pipeline fails the same way an insecure resource does.
 ### Infrastructure controls verified by the scanners
-
+ 
 - S3 public access blocked (ACLs and policies)
 - Encryption with a customer-managed KMS key
 - KMS key rotation enabled
@@ -86,13 +90,12 @@ A security pipeline is itself an attack path, so it gets the same treatment as t
 - Access logging enabled
 - IAM policies grant no unrestricted S3 access
 Current result: every Checkov and Trivy finding is either fixed or suppressed inline with a documented reason. Nothing is left unaddressed.
-
 ---
-
+ 
 ## Security decisions
-
+ 
 Not every scanner finding should be fixed. Each one was weighed on risk, cost, and effort, and the decision recorded. Full reasoning, compensating controls, and "revisit if" conditions are in [docs/security-decisions.md](docs/security-decisions.md).
-
+ 
 | Finding | Decision | Reason |
 |---|---|---|
 | No lifecycle configuration | **Fixed** | Versioning keeps old copies forever; cleanup controls cost |
@@ -102,13 +105,13 @@ Not every scanner finding should be fixed. Each one was weighed on risk, cost, a
 | Logs bucket not using a customer-managed KMS key | **Suppressed: not supported** | S3 server access logging can't deliver to a bucket encrypted with a customer-managed key; SSE-S3 is used instead |
 | No cross-region replication | **Accepted** | A disaster-recovery control for business-critical data; this is demo data, and versioning already covers recovery |
 | No event notifications | **Accepted** | No downstream system to notify; access logging covers the audit need |
-
+ 
 Suppressions are applied narrowly, inline on the specific resource, with the reason recorded next to them. Checks stay active everywhere else.
-
+ 
 ---
-
+ 
 ## Repository layout
-
+ 
 ```
 .
 ├── terraform/
@@ -118,16 +121,19 @@ Suppressions are applied narrowly, inline on the specific resource, with the rea
 │   └── outputs.tf      # Bucket name/ARN, role ARN
 ├── docs/
 │   └── security-decisions.md   # Risk decisions and scanner suppressions
-└── .github/workflows/
-    └── security.yml    # Security pipeline: four scanners plus a suppression guard, all pinned
+├── .github/
+│   ├── dependabot.yml  # Weekly update PRs for pinned actions and Terraform providers
+│   └── workflows/
+│       └── security.yml    # Security pipeline: scanners, validation, workflow lint, suppression guard
+└── LICENSE
 ```
-
+ 
 ---
-
+ 
 ## Running it locally
-
-Requires Terraform 1.10+, Python (for Checkov), and Trivy. No AWS account is needed for these steps. The same checks, plus Gitleaks and Semgrep, run automatically in CI; the workflow file has the exact flags.
-
+ 
+Requires Terraform 1.10+, Python (for Checkov), and Trivy. No AWS account is needed for these steps. The same checks, plus Gitleaks, Semgrep, and zizmor, run automatically in CI; the workflow file has the exact flags.
+ 
 ```bash
 cd terraform
 terraform init
@@ -137,11 +143,11 @@ cd ..
 checkov -d terraform --compact --quiet
 trivy config terraform
 ```
-
+ 
 ---
-
+ 
 ## Roadmap
-
+ 
 - [x] **Phase 0:** Tooling
 - [x] **Phase 1:** Terraform written and validated locally
 - [x] **Phase 2:** Local security scanning, triage, and documented risk decisions
@@ -151,9 +157,13 @@ trivy config terraform
   - [ ] Optional: scan results uploaded to the GitHub Security tab (SARIF)
 - [ ] **Phase 4:** Prove it works (in progress)
   - [x] Pipeline hardening: suppression guard, no persisted credentials, job timeouts, pinned runner
+  - [x] Terraform validation, workflow linting (zizmor), and Dependabot updates for pinned dependencies
   - [ ] A deliberately insecure pull request, blocked by the scanners
   - [ ] The same change with a skip comment added, blocked by the suppression guard
 - [ ] **Phase 5:** Deploy to AWS using GitHub OIDC (no stored access keys), with manual approval before apply
 - [ ] **Phase 6:** Continuous compliance: nightly scans, drift detection, CIS AWS Foundations mapping
 - [ ] **Phase 7:** Final documentation
+**After Phase 7**
+- [ ] A Kubernetes layer on top of the pipeline, held to the same scan-and-block standard
+- [ ] Quantum-resistant cryptography checks, including a block table for insecure connections
 ---
